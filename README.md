@@ -99,9 +99,9 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
-## 📋 What You Need To Do Yourself (Manual Steps Checklist)
+## 📋 What Need To Done Manually?
 
-To complete your assignment submission, perform the following setup steps in your Google/Firebase account:
+To complete the entire setup, perform the following setup steps in your Google/Firebase account:
 
 1. **Create Firebase Project**:
    - Go to [Firebase Console](https://console.firebase.google.com).
