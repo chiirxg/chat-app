@@ -12,14 +12,33 @@ const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
   ? new BroadcastChannel("soc_chat_app_channel")
   : null;
 
-// Helper to deduplicate and merge message lists cleanly
+// Smart Helper to deduplicate messages and replace temporary local messages with real ones
 const mergeMessages = (prevMsgs = [], newMsgs = []) => {
   const combined = [...prevMsgs, ...newMsgs];
   const map = new Map();
+
   for (const m of combined) {
     if (!m) continue;
-    const key = m.id || `${m.senderId}_${m.text}_${m.timestamp}`;
-    if (!map.has(key)) {
+    const cleanText = (m.text || "").trim();
+    const sender = m.senderId || "user";
+
+    // Find if an identical message from same sender exists
+    let existingKey = null;
+    for (const [k, existing] of map.entries()) {
+      if (existing.senderId === sender && (existing.text || "").trim() === cleanText) {
+        existingKey = k;
+        break;
+      }
+    }
+
+    if (existingKey) {
+      // Prefer server message with valid Firestore ID if available
+      if (m.id && !m.id.startsWith("msg_")) {
+        map.delete(existingKey);
+        map.set(m.id, m);
+      }
+    } else {
+      const key = m.id || `${sender}_${cleanText}_${Date.now()}`;
       map.set(key, m);
     }
   }
