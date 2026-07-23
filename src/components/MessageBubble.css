@@ -1,0 +1,111 @@
+.message-bubble-wrapper {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+  max-width: 75%;
+}
+
+.message-bubble-wrapper.sent {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
+
+.message-bubble-wrapper.received {
+  align-self: flex-start;
+  margin-right: auto;
+}
+
+.bubble-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #334155;
+}
+
+.bubble-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.bubble-sender-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+  margin-bottom: 0.2rem;
+  margin-left: 0.4rem;
+}
+
+.sent .bubble-sender-name {
+  display: none;
+}
+
+.bubble-body {
+  position: relative;
+  padding: 0.75rem 1rem;
+  border-radius: 16px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  word-break: break-word;
+}
+
+.sent .bubble-body {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.received .bubble-body {
+  background: var(--received-bubble-bg, rgba(30, 41, 59, 0.8));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  color: var(--text-primary, #ffffff);
+  border-bottom-left-radius: 4px;
+}
+
+.bubble-text {
+  margin: 0;
+  margin-bottom: 0.25rem;
+}
+
+.bubble-timestamp {
+  display: block;
+  font-size: 0.68rem;
+  opacity: 0.75;
+  text-align: right;
+  margin-top: 0.2rem;
+}
+
+.bubble-image-container {
+  max-width: 280px;
+  max-height: 280px;
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  margin-bottom: 0.25rem;
+  transition: transform 0.2s ease;
+}
+
+.bubble-image-container:hover {
+  transform: scale(1.02);
+}
+
+.bubble-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .message-bubble-wrapper {
+    max-width: 88%;
+  }
+  
+  .bubble-image-container {
+    max-width: 220px;
+  }
+}
