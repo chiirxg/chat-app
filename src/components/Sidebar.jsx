@@ -14,8 +14,13 @@ import {
   Moon, 
   Users, 
   Hash,
+  MessageCircle,
   X
 } from "lucide-react";
+
+const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
+  ? new BroadcastChannel("soc_chat_app_channel")
+  : null;
 
 function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobileOpen, closeMobileSidebar }) {
   const { user, logout } = useAuth();
@@ -28,6 +33,24 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userStatus, setUserStatus] = useState("online");
 
+  // Listen to BroadcastChannel for real-time room creation across tabs
+  useEffect(() => {
+    if (!chatChannel) return;
+
+    const handleBroadcast = (event) => {
+      const { type, room } = event.data || {};
+      if (type === "NEW_ROOM" && room) {
+        setRooms((prev) => {
+          if (prev.some((r) => r.id === room.id)) return prev;
+          return [room, ...prev];
+        });
+      }
+    };
+
+    chatChannel.addEventListener("message", handleBroadcast);
+    return () => chatChannel.removeEventListener("message", handleBroadcast);
+  }, []);
+
   // Real-time listener for Rooms in Firestore
   useEffect(() => {
     const q = query(collection(db, "rooms"), orderBy("createdAt", "desc"));
@@ -38,7 +61,6 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
       }));
 
       if (roomList.length > 0) {
-        // Merge fetched rooms with default rooms avoiding duplicates
         setRooms((prev) => {
           const existingIds = new Set(roomList.map(r => r.id));
           const localOnly = prev.filter(r => !existingIds.has(r.id));
@@ -46,7 +68,7 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
         });
       }
     }, (error) => {
-      console.warn("Firestore rooms listener warning:", error);
+      console.warn("Firestore rooms listener info:", error);
     });
 
     return () => unsubscribe();
@@ -76,7 +98,16 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
   };
 
   const handleRoomCreated = (newRoom) => {
-    setRooms((prev) => [newRoom, ...prev]);
+    setRooms((prev) => [newRoom, ...prev.filter(r => r.id !== newRoom.id)]);
+    
+    // Broadcast room creation across all open browser tabs
+    if (chatChannel) {
+      chatChannel.postMessage({
+        type: "NEW_ROOM",
+        room: newRoom
+      });
+    }
+
     handleRoomClick(newRoom.id);
   };
 
@@ -170,7 +201,11 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
                 onClick={() => handleRoomClick(room.id)}
               >
                 <div className="room-icon-wrapper">
-                  <Hash size={18} className="room-hash" />
+                  {room.isDirectMessage ? (
+                    <MessageCircle size={18} className="room-hash" />
+                  ) : (
+                    <Hash size={18} className="room-hash" />
+                  )}
                 </div>
                 <div className="room-details">
                   <span className="room-name">{room.name}</span>
