@@ -7,6 +7,10 @@ import EmojiPicker from "emoji-picker-react";
 import "./MessageInput.css";
 import { Paperclip, Smile, Send, Loader2, X } from "lucide-react";
 
+const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
+  ? new BroadcastChannel("soc_chat_app_channel")
+  : null;
+
 function MessageInput({ roomId, onSendMessage }) {
   const { user } = useAuth();
   const [inputValue, setInputValue] = useState("");
@@ -16,21 +20,39 @@ function MessageInput({ roomId, onSendMessage }) {
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
-  // Handle typing indicator in RTDB
+  const broadcastTyping = (isTyping) => {
+    if (chatChannel && user) {
+      chatChannel.postMessage({
+        type: "TYPING",
+        roomId,
+        senderId: user.uid,
+        senderName: user.displayName || user.email?.split('@')[0] || "Someone",
+        isTyping
+      });
+    }
+  };
+
+  // Handle typing indicator in RTDB & BroadcastChannel
   const handleInputChange = (e) => {
     const val = e.target.value;
     setInputValue(val);
 
     if (!user || !roomId) return;
 
-    // Write typing status to RTDB
-    const typingRef = rtdbRef(rtdb, `typing/${roomId}/${user.uid}`);
-    rtdbSet(typingRef, user.displayName || user.email?.split('@')[0] || "Someone");
+    broadcastTyping(true);
 
-    // Clear typing status after 2 seconds of inactivity
+    try {
+      const typingRef = rtdbRef(rtdb, `typing/${roomId}/${user.uid}`);
+      rtdbSet(typingRef, user.displayName || user.email?.split('@')[0] || "Someone");
+    } catch (err) {}
+
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      rtdbRemove(typingRef);
+      broadcastTyping(false);
+      try {
+        const typingRef = rtdbRef(rtdb, `typing/${roomId}/${user.uid}`);
+        rtdbRemove(typingRef);
+      } catch (err) {}
     }, 2000);
   };
 
@@ -44,11 +66,13 @@ function MessageInput({ roomId, onSendMessage }) {
 
     setInputValue("");
     setShowEmojiPicker(false);
+    broadcastTyping(false);
 
-    // Immediately remove typing indicator on send
     if (user && roomId) {
-      const typingRef = rtdbRef(rtdb, `typing/${roomId}/${user.uid}`);
-      rtdbRemove(typingRef);
+      try {
+        const typingRef = rtdbRef(rtdb, `typing/${roomId}/${user.uid}`);
+        rtdbRemove(typingRef);
+      } catch (err) {}
     }
   };
 
@@ -64,7 +88,6 @@ function MessageInput({ roomId, onSendMessage }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file type
     if (!file.type.startsWith("image/")) {
       alert("Please select a valid image file.");
       return;
@@ -72,37 +95,40 @@ function MessageInput({ roomId, onSendMessage }) {
 
     try {
       setIsUploading(true);
-      setUploadProgress(0);
+      setUploadProgress(20);
 
-      const timestamp = Date.now();
-      const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const imagePath = `chat-images/${roomId || "general"}/${timestamp}_${cleanFileName}`;
-      const imgRef = storageRef(storage, imagePath);
+      // Create a local data URL preview as fallback
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const localDataUrl = event.target?.result;
+        setUploadProgress(100);
 
-      const uploadTask = uploadBytesResumable(imgRef, file);
+        try {
+          const timestamp = Date.now();
+          const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+          const imagePath = `chat-images/${roomId || "general"}/${timestamp}_${cleanFileName}`;
+          const imgRef = storageRef(storage, imagePath);
 
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(Math.round(progress));
-        },
-        (error) => {
-          console.error("Storage upload error:", error);
-          alert("Image upload failed. Check your Firebase Storage settings.");
+          const uploadTask = uploadBytesResumable(imgRef, file);
+          uploadTask.on(
+            "state_changed",
+            null,
+            () => {
+              onSendMessage({ text: "📷 Sent an image", type: "image", imageUrl: localDataUrl });
+              setIsUploading(false);
+            },
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              onSendMessage({ text: "📷 Sent an image", type: "image", imageUrl: downloadURL });
+              setIsUploading(false);
+            }
+          );
+        } catch (storageErr) {
+          onSendMessage({ text: "📷 Sent an image", type: "image", imageUrl: localDataUrl });
           setIsUploading(false);
-        },
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          onSendMessage({
-            text: "📷 Sent an image",
-            type: "image",
-            imageUrl: downloadURL
-          });
-          setIsUploading(false);
-          if (fileInputRef.current) fileInputRef.current.value = "";
         }
-      );
+      };
+      reader.readAsDataURL(file);
     } catch (err) {
       console.error("File upload error:", err);
       setIsUploading(false);

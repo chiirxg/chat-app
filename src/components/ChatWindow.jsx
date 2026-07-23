@@ -6,7 +6,12 @@ import { useAuth } from "../context/AuthContext";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import "./ChatWindow.css";
-import { Hash, Menu, Loader2, X, Sparkles, AlertCircle } from "lucide-react";
+import { Hash, Menu, Loader2, X, Sparkles } from "lucide-react";
+
+// Initialize BroadcastChannel for instant cross-tab sync
+const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
+  ? new BroadcastChannel("soc_chat_app_channel")
+  : null;
 
 function ChatWindow({ roomId, toggleMobileSidebar }) {
   const { user } = useAuth();
@@ -29,7 +34,6 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
         if (snap.exists() && isSubscribed) {
           setRoomInfo(snap.data());
         } else if (isSubscribed) {
-          // Default Room details
           setRoomInfo({
             name: activeRoomId === "general" ? "General Chat" : activeRoomId === "tech" ? "Tech & Code" : "Random & Fun",
             description: "Public discussion room for all members"
@@ -48,9 +52,40 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
     return () => { isSubscribed = false; };
   }, [activeRoomId]);
 
+  // Listen to BroadcastChannel for cross-tab message & typing sync
+  useEffect(() => {
+    if (!chatChannel) return;
+
+    const handleBroadcast = (event) => {
+      const { type, roomId: msgRoomId, message, senderId, senderName, isTyping } = event.data || {};
+      
+      if (msgRoomId !== activeRoomId) return;
+
+      if (type === "NEW_MESSAGE" && message) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === message.id)) return prev;
+          return [...prev, message];
+        });
+      } else if (type === "TYPING" && senderId !== user?.uid) {
+        setTypingUsers((prev) => {
+          if (isTyping) {
+            return prev.includes(senderName) ? prev : [...prev, senderName];
+          } else {
+            return prev.filter((name) => name !== senderName);
+          }
+        });
+      }
+    };
+
+    chatChannel.addEventListener("message", handleBroadcast);
+    return () => chatChannel.removeEventListener("message", handleBroadcast);
+  }, [activeRoomId, user?.uid]);
+
   // Real-time Firestore Messages Listener
   useEffect(() => {
     setLoading(true);
+    let isLiveFromFirestore = false;
+
     const messagesCollectionRef = collection(db, "rooms", activeRoomId, "messages");
     const q = query(messagesCollectionRef, orderBy("timestamp", "asc"));
 
@@ -59,15 +94,27 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
         id: doc.id,
         ...doc.data()
       }));
-      setMessages(msgs);
+      if (msgs.length > 0) {
+        isLiveFromFirestore = true;
+        setMessages(msgs);
+      }
       setLoading(false);
     }, (error) => {
-      console.warn("Firestore messages listener fallback:", error);
-      setMessages([]);
+      console.warn("Firestore messages listener info:", error);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Timeout fallback if Firestore is taking time or in demo mode
+    const timer = setTimeout(() => {
+      if (!isLiveFromFirestore) {
+        setLoading(false);
+      }
+    }, 800);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
   }, [activeRoomId]);
 
   // Real-time RTDB Typing Indicator Listener
@@ -76,13 +123,10 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
     const unsubscribe = onValue(typingRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        // Filter out current user's typing indicator
         const typers = Object.entries(data)
           .filter(([uid]) => uid !== user?.uid)
           .map(([, name]) => name);
         setTypingUsers(typers);
-      } else {
-        setTypingUsers([]);
       }
     });
 
@@ -102,30 +146,44 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
   const handleSendMessage = async ({ text, type = "text", imageUrl = null }) => {
     if (!user) return;
 
+    const newMsg = {
+      id: "msg_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      text,
+      type,
+      imageUrl,
+      senderId: user.uid,
+      senderName: user.displayName || user.email?.split('@')[0] || "User",
+      senderPhoto: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.displayName || "User"}`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    // Append locally immediately
+    setMessages((prev) => [...prev, newMsg]);
+
+    // Broadcast across tabs in real-time
+    if (chatChannel) {
+      chatChannel.postMessage({
+        type: "NEW_MESSAGE",
+        roomId: activeRoomId,
+        message: newMsg
+      });
+    }
+
+    // Try sending to Firestore with timeout safety
     try {
-      await addDoc(collection(db, "rooms", activeRoomId, "messages"), {
+      const addPromise = addDoc(collection(db, "rooms", activeRoomId, "messages"), {
         text,
         type,
         imageUrl,
         senderId: user.uid,
-        senderName: user.displayName || user.email?.split('@')[0] || "User",
-        senderPhoto: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.uid}`,
+        senderName: newMsg.senderName,
+        senderPhoto: newMsg.senderPhoto,
         timestamp: serverTimestamp()
       });
+      const timeout = new Promise((res) => setTimeout(res, 1200));
+      await Promise.race([addPromise, timeout]);
     } catch (err) {
-      console.error("Failed to send message:", err);
-      // Fallback local append for immediate UX if offline/demo
-      const newMsg = {
-        id: Date.now().toString(),
-        text,
-        type,
-        imageUrl,
-        senderId: user.uid,
-        senderName: user.displayName || user.email?.split('@')[0] || "User",
-        senderPhoto: user.photoURL,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages((prev) => [...prev, newMsg]);
+      console.info("Sent message in local real-time mode:", err);
     }
   };
 
