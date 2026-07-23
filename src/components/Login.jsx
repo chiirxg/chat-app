@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import "./Login.css";
-import { MessageSquare, LogIn, UserPlus, Sparkles } from "lucide-react";
+import { MessageSquare, LogIn, UserPlus, Sparkles, Info } from "lucide-react";
 
 function Login() {
   const { loginWithGoogle, loginWithEmail, signupWithEmail } = useAuth();
@@ -62,7 +62,11 @@ function Login() {
           <p>Connect and chat in real-time with your team</p>
         </div>
 
-        {error && <div className="login-error">{error}</div>}
+        {error && (
+          <div className="login-error">
+            <span>{error}</span>
+          </div>
+        )}
 
         <button 
           className="google-btn" 
@@ -100,7 +104,7 @@ function Login() {
               <label>Full Name</label>
               <input
                 type="text"
-                placeholder="John Doe"
+                placeholder="Chirag Borkar"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 required={isSignUp}
