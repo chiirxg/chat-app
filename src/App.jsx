@@ -12,7 +12,15 @@ function App() {
   const [activeRoomId, setActiveRoomId] = useState("general");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState({});
-  const [globalMessages, setGlobalMessages] = useState({});
+  const [globalMessages, setGlobalMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem("soc_chat_global_messages_v1");
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem("soc_chat_theme") === "dark" || true;
   });
@@ -27,6 +35,13 @@ function App() {
     }
   }, [darkMode]);
 
+  // Persist globalMessages to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem("soc_chat_global_messages_v1", JSON.stringify(globalMessages));
+    } catch (e) {}
+  }, [globalMessages]);
+
   // Track Unread Badges & Global Message Store across tabs
   useEffect(() => {
     if (!chatChannel) return;
@@ -35,7 +50,6 @@ function App() {
       const { type, roomId, message, room } = event.data || {};
 
       if (type === "NEW_MESSAGE" && message && roomId) {
-        // Store message globally
         setGlobalMessages((prev) => {
           const roomMsgs = prev[roomId] || [];
           if (roomMsgs.some((m) => m.id === message.id)) return prev;
@@ -45,7 +59,6 @@ function App() {
           };
         });
 
-        // Increment unread count if message is for a different room than active
         if (roomId !== activeRoomId) {
           setUnreadCounts((prev) => ({
             ...prev,
@@ -53,7 +66,6 @@ function App() {
           }));
         }
       } else if (type === "NEW_ROOM" && room) {
-        // If it's a 1-on-1 direct room creation broadcast, automatically switch active room
         if (room.isDirectMessage) {
           setActiveRoomId(room.id);
         }
@@ -66,7 +78,6 @@ function App() {
 
   const handleSelectRoom = (roomId) => {
     setActiveRoomId(roomId);
-    // Clear unread count for selected room
     setUnreadCounts((prev) => ({
       ...prev,
       [roomId]: 0

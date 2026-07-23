@@ -12,6 +12,20 @@ const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
   ? new BroadcastChannel("soc_chat_app_channel")
   : null;
 
+// Helper to deduplicate and merge message lists cleanly
+const mergeMessages = (prevMsgs = [], newMsgs = []) => {
+  const combined = [...prevMsgs, ...newMsgs];
+  const map = new Map();
+  for (const m of combined) {
+    if (!m) continue;
+    const key = m.id || `${m.senderId}_${m.text}_${m.timestamp}`;
+    if (!map.has(key)) {
+      map.set(key, m);
+    }
+  }
+  return Array.from(map.values());
+};
+
 function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobileSidebar }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -26,7 +40,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
   // Sync messages from global store
   useEffect(() => {
     if (globalMessages[activeRoomId]) {
-      setMessages(globalMessages[activeRoomId]);
+      setMessages((prev) => mergeMessages(prev, globalMessages[activeRoomId]));
     }
   }, [activeRoomId, globalMessages]);
 
@@ -66,10 +80,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
       const { type, roomId: msgRoomId, message, senderId, senderName, isTyping } = event.data || {};
       
       if (msgRoomId === activeRoomId && type === "NEW_MESSAGE" && message) {
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === message.id)) return prev;
-          return [...prev, message];
-        });
+        setMessages((prev) => mergeMessages(prev, [message]));
       } else if (msgRoomId === activeRoomId && type === "TYPING" && senderId !== user?.uid) {
         setTypingUsers((prev) => {
           if (isTyping) {
@@ -100,10 +111,13 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
       }));
       if (msgs.length > 0) {
         isLiveFromFirestore = true;
-        setMessages(msgs);
-        if (setGlobalMessages) {
-          setGlobalMessages((prev) => ({ ...prev, [activeRoomId]: msgs }));
-        }
+        setMessages((prev) => {
+          const merged = mergeMessages(prev, msgs);
+          if (setGlobalMessages) {
+            setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
+          }
+          return merged;
+        });
       }
       setLoading(false);
     }, (error) => {
@@ -178,14 +192,13 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
 
-      setMessages((prev) => [...prev, botMsg]);
-
-      if (setGlobalMessages) {
-        setGlobalMessages((prev) => ({
-          ...prev,
-          [activeRoomId]: [...(prev[activeRoomId] || messages), botMsg]
-        }));
-      }
+      setMessages((prev) => {
+        const merged = mergeMessages(prev, [botMsg]);
+        if (setGlobalMessages) {
+          setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
+        }
+        return merged;
+      });
 
       if (chatChannel) {
         chatChannel.postMessage({
@@ -213,11 +226,11 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
     };
 
     setMessages((prev) => {
-      const updated = [...prev, newMsg];
+      const merged = mergeMessages(prev, [newMsg]);
       if (setGlobalMessages) {
-        setGlobalMessages((g) => ({ ...g, [activeRoomId]: updated }));
+        setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
       }
-      return updated;
+      return merged;
     });
 
     if (chatChannel) {
@@ -228,7 +241,6 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
       });
     }
 
-    // Trigger AI Bot response if chatting in ai-bot room or tagging @bot
     if (activeRoomId === "ai-bot" || text.toLowerCase().includes("@bot") || text.toLowerCase().includes("@ai")) {
       triggerAiBotResponse(text);
     }
