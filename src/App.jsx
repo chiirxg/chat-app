@@ -12,15 +12,7 @@ function App() {
   const [activeRoomId, setActiveRoomId] = useState("general");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState({});
-  const [globalMessages, setGlobalMessages] = useState(() => {
-    try {
-      const saved = localStorage.getItem("soc_chat_global_messages_v1");
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
-  });
-
+  const [globalMessages, setGlobalMessages] = useState({});
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem("soc_chat_theme") === "dark" || true;
   });
@@ -35,14 +27,7 @@ function App() {
     }
   }, [darkMode]);
 
-  // Persist globalMessages to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem("soc_chat_global_messages_v1", JSON.stringify(globalMessages));
-    } catch (e) {}
-  }, [globalMessages]);
-
-  // Track Unread Badges & Global Message Store across tabs
+  // Track Unread Badges & Room Isolation across tabs
   useEffect(() => {
     if (!chatChannel) return;
 

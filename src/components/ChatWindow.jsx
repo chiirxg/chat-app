@@ -12,9 +12,13 @@ const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
   ? new BroadcastChannel("soc_chat_app_channel")
   : null;
 
-// Smart Helper to deduplicate messages and sort chronologically
-const mergeAndSortMessages = (prevMsgs = [], newMsgs = []) => {
-  const combined = [...prevMsgs, ...newMsgs];
+// Smart Helper to deduplicate messages and sort chronologically for a specific room
+const mergeAndSortMessages = (prevMsgs = [], newMsgs = [], currentRoomId) => {
+  // Only keep messages belonging to current room
+  const filteredNew = newMsgs.filter((m) => !m.roomId || m.roomId === currentRoomId);
+  const filteredPrev = prevMsgs.filter((m) => !m.roomId || m.roomId === currentRoomId);
+
+  const combined = [...filteredPrev, ...filteredNew];
   const map = new Map();
 
   for (const m of combined) {
@@ -41,7 +45,6 @@ const mergeAndSortMessages = (prevMsgs = [], newMsgs = []) => {
     }
   }
 
-  // Sort strictly by timestampMs ascending
   return Array.from(map.values()).sort((a, b) => {
     const tA = a.timestampMs || 0;
     const tB = b.timestampMs || 0;
@@ -51,6 +54,8 @@ const mergeAndSortMessages = (prevMsgs = [], newMsgs = []) => {
 
 function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobileSidebar }) {
   const { user } = useAuth();
+  const activeRoomId = roomId || "general";
+
   const [messages, setMessages] = useState([]);
   const [roomInfo, setRoomInfo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -58,13 +63,10 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
   const [lightboxImage, setLightboxImage] = useState(null);
   const messagesEndRef = useRef(null);
 
-  const activeRoomId = roomId || "general";
-
-  // Sync messages from global store
+  // Switch Room: Strictly load only current room's messages
   useEffect(() => {
-    if (globalMessages[activeRoomId]) {
-      setMessages((prev) => mergeAndSortMessages(prev, globalMessages[activeRoomId]));
-    }
+    const roomMsgs = globalMessages[activeRoomId] || [];
+    setMessages(mergeAndSortMessages([], roomMsgs, activeRoomId));
   }, [activeRoomId, globalMessages]);
 
   // Fetch Room Info
@@ -103,7 +105,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
       const { type, roomId: msgRoomId, message, senderId, senderName, isTyping } = event.data || {};
       
       if (msgRoomId === activeRoomId && type === "NEW_MESSAGE" && message) {
-        setMessages((prev) => mergeAndSortMessages(prev, [message]));
+        setMessages((prev) => mergeAndSortMessages(prev, [message], activeRoomId));
       } else if (msgRoomId === activeRoomId && type === "TYPING" && senderId !== user?.uid) {
         setTypingUsers((prev) => {
           if (isTyping) {
@@ -130,13 +132,14 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map((doc) => ({
         id: doc.id,
+        roomId: activeRoomId,
         ...doc.data(),
         timestampMs: doc.data().timestamp?.toMillis ? doc.data().timestamp.toMillis() : Date.now()
       }));
       if (msgs.length > 0) {
         isLiveFromFirestore = true;
         setMessages((prev) => {
-          const merged = mergeAndSortMessages(prev, msgs);
+          const merged = mergeAndSortMessages(prev, msgs, activeRoomId);
           if (setGlobalMessages) {
             setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
           }
@@ -209,6 +212,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
       const now = Date.now();
       const botMsg = {
         id: "msg_bot_" + now,
+        roomId: activeRoomId,
         text: botReply,
         type: "text",
         senderId: "soc_ai_bot",
@@ -219,7 +223,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
       };
 
       setMessages((prev) => {
-        const merged = mergeAndSortMessages(prev, [botMsg]);
+        const merged = mergeAndSortMessages(prev, [botMsg], activeRoomId);
         if (setGlobalMessages) {
           setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
         }
@@ -243,6 +247,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
     const now = Date.now();
     const newMsg = {
       id: "msg_" + now + "_" + Math.floor(Math.random() * 1000),
+      roomId: activeRoomId,
       text,
       type,
       imageUrl,
@@ -254,7 +259,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
     };
 
     setMessages((prev) => {
-      const merged = mergeAndSortMessages(prev, [newMsg]);
+      const merged = mergeAndSortMessages(prev, [newMsg], activeRoomId);
       if (setGlobalMessages) {
         setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
       }
