@@ -99,7 +99,7 @@ Open `http://localhost:5173` in your browser.
 
 ---
 
-## 📋 What Need To Done Manually?
+## 📋 What Needs to be done manually?
 
 To complete the entire setup, perform the following setup steps in your Google/Firebase account:
 
