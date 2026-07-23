@@ -12,8 +12,8 @@ const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
   ? new BroadcastChannel("soc_chat_app_channel")
   : null;
 
-// Smart Helper to deduplicate messages and replace temporary local messages with real ones
-const mergeMessages = (prevMsgs = [], newMsgs = []) => {
+// Smart Helper to deduplicate messages and sort chronologically
+const mergeAndSortMessages = (prevMsgs = [], newMsgs = []) => {
   const combined = [...prevMsgs, ...newMsgs];
   const map = new Map();
 
@@ -22,7 +22,6 @@ const mergeMessages = (prevMsgs = [], newMsgs = []) => {
     const cleanText = (m.text || "").trim();
     const sender = m.senderId || "user";
 
-    // Find if an identical message from same sender exists
     let existingKey = null;
     for (const [k, existing] of map.entries()) {
       if (existing.senderId === sender && (existing.text || "").trim() === cleanText) {
@@ -32,17 +31,22 @@ const mergeMessages = (prevMsgs = [], newMsgs = []) => {
     }
 
     if (existingKey) {
-      // Prefer server message with valid Firestore ID if available
       if (m.id && !m.id.startsWith("msg_")) {
         map.delete(existingKey);
         map.set(m.id, m);
       }
     } else {
-      const key = m.id || `${sender}_${cleanText}_${Date.now()}`;
+      const key = m.id || `${sender}_${cleanText}_${m.timestampMs || Date.now()}`;
       map.set(key, m);
     }
   }
-  return Array.from(map.values());
+
+  // Sort strictly by timestampMs ascending
+  return Array.from(map.values()).sort((a, b) => {
+    const tA = a.timestampMs || 0;
+    const tB = b.timestampMs || 0;
+    return tA - tB;
+  });
 };
 
 function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobileSidebar }) {
@@ -59,7 +63,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
   // Sync messages from global store
   useEffect(() => {
     if (globalMessages[activeRoomId]) {
-      setMessages((prev) => mergeMessages(prev, globalMessages[activeRoomId]));
+      setMessages((prev) => mergeAndSortMessages(prev, globalMessages[activeRoomId]));
     }
   }, [activeRoomId, globalMessages]);
 
@@ -99,7 +103,7 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
       const { type, roomId: msgRoomId, message, senderId, senderName, isTyping } = event.data || {};
       
       if (msgRoomId === activeRoomId && type === "NEW_MESSAGE" && message) {
-        setMessages((prev) => mergeMessages(prev, [message]));
+        setMessages((prev) => mergeAndSortMessages(prev, [message]));
       } else if (msgRoomId === activeRoomId && type === "TYPING" && senderId !== user?.uid) {
         setTypingUsers((prev) => {
           if (isTyping) {
@@ -126,12 +130,13 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map((doc) => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
+        timestampMs: doc.data().timestamp?.toMillis ? doc.data().timestamp.toMillis() : Date.now()
       }));
       if (msgs.length > 0) {
         isLiveFromFirestore = true;
         setMessages((prev) => {
-          const merged = mergeMessages(prev, msgs);
+          const merged = mergeAndSortMessages(prev, msgs);
           if (setGlobalMessages) {
             setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
           }
@@ -201,18 +206,20 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
         botReply = "I can answer questions, test real-time chat features, and demonstrate automated bot replies!";
       }
 
+      const now = Date.now();
       const botMsg = {
-        id: "msg_bot_" + Date.now(),
+        id: "msg_bot_" + now,
         text: botReply,
         type: "text",
         senderId: "soc_ai_bot",
         senderName: "SOC AI Assistant",
         senderPhoto: "https://api.dicebear.com/7.x/bottts/svg?seed=SOCBotAI",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestampMs: now
       };
 
       setMessages((prev) => {
-        const merged = mergeMessages(prev, [botMsg]);
+        const merged = mergeAndSortMessages(prev, [botMsg]);
         if (setGlobalMessages) {
           setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
         }
@@ -233,19 +240,21 @@ function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobi
   const handleSendMessage = async ({ text, type = "text", imageUrl = null }) => {
     if (!user) return;
 
+    const now = Date.now();
     const newMsg = {
-      id: "msg_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      id: "msg_" + now + "_" + Math.floor(Math.random() * 1000),
       text,
       type,
       imageUrl,
       senderId: user.uid,
       senderName: user.displayName || user.email?.split('@')[0] || "User",
       senderPhoto: user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.displayName || "User"}`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestampMs: now
     };
 
     setMessages((prev) => {
-      const merged = mergeMessages(prev, [newMsg]);
+      const merged = mergeAndSortMessages(prev, [newMsg]);
       if (setGlobalMessages) {
         setGlobalMessages((g) => ({ ...g, [activeRoomId]: merged }));
       }
