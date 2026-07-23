@@ -13,14 +13,17 @@ import {
   Sun, 
   Moon, 
   Users, 
-  Sparkles,
   Hash,
   X
 } from "lucide-react";
 
 function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobileOpen, closeMobileSidebar }) {
   const { user, logout } = useAuth();
-  const [rooms, setRooms] = useState([]);
+  const [rooms, setRooms] = useState([
+    { id: "general", name: "General Chat", description: "Default discussion room" },
+    { id: "tech", name: "Tech & Code", description: "Developers hangout" },
+    { id: "random", name: "Random & Fun", description: "Casual conversations" }
+  ]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userStatus, setUserStatus] = useState("online");
@@ -34,24 +37,16 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
         ...doc.data()
       }));
 
-      // Provide default rooms if database is empty initially
-      if (roomList.length === 0) {
-        setRooms([
-          { id: "general", name: "General Chat", description: "Default discussion room" },
-          { id: "tech", name: "Tech & Code", description: "Developers hangout" },
-          { id: "random", name: "Random & Fun", description: "Casual conversations" }
-        ]);
-      } else {
-        setRooms(roomList);
+      if (roomList.length > 0) {
+        // Merge fetched rooms with default rooms avoiding duplicates
+        setRooms((prev) => {
+          const existingIds = new Set(roomList.map(r => r.id));
+          const localOnly = prev.filter(r => !existingIds.has(r.id));
+          return [...roomList, ...localOnly];
+        });
       }
     }, (error) => {
       console.warn("Firestore rooms listener warning:", error);
-      // Fallback
-      setRooms([
-        { id: "general", name: "General Chat", description: "Default discussion room" },
-        { id: "tech", name: "Tech & Code", description: "Developers hangout" },
-        { id: "random", name: "Random & Fun", description: "Casual conversations" }
-      ]);
     });
 
     return () => unsubscribe();
@@ -59,7 +54,7 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
 
   // Realtime Database status listener for current user
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.isDemo) return;
     const statusRef = rtdbRef(rtdb, `status/${user.uid}`);
     const unsubscribe = onValue(statusRef, (snapshot) => {
       const val = snapshot.val();
@@ -78,6 +73,11 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
   const handleRoomClick = (roomId) => {
     onSelectRoom(roomId);
     if (closeMobileSidebar) closeMobileSidebar();
+  };
+
+  const handleRoomCreated = (newRoom) => {
+    setRooms((prev) => [newRoom, ...prev]);
+    handleRoomClick(newRoom.id);
   };
 
   return (
@@ -100,7 +100,7 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
         <div className="user-profile-box">
           <div className="avatar-wrapper">
             <img 
-              src={user?.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.uid}`} 
+              src={user?.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.displayName || "User"}`} 
               alt={user?.displayName || "Profile"} 
               className="user-avatar"
             />
@@ -108,7 +108,7 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
           </div>
           <div className="user-info">
             <span className="user-name">{user?.displayName || user?.email?.split('@')[0] || "User"}</span>
-            <span className="user-email">{user?.email}</span>
+            <span className="user-email">{user?.email || "User Account"}</span>
           </div>
         </div>
 
@@ -185,7 +185,7 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
       <NewRoomModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onRoomCreated={(newId) => handleRoomClick(newId)}
+        onRoomCreated={handleRoomCreated}
       />
     </>
   );
