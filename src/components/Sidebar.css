@@ -283,6 +283,27 @@
   text-overflow: ellipsis;
 }
 
+.unread-badge {
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  margin-left: auto;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+  animation: pulseBadge 1.5s infinite;
+}
+
+@keyframes pulseBadge {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.bot-icon {
+  color: #22c55e !important;
+}
+
 @media (max-width: 768px) {
   .sidebar {
     position: fixed;

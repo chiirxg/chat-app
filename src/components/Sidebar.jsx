@@ -15,6 +15,7 @@ import {
   Users, 
   Hash,
   MessageCircle,
+  Bot,
   X
 } from "lucide-react";
 
@@ -22,10 +23,11 @@ const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
   ? new BroadcastChannel("soc_chat_app_channel")
   : null;
 
-function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobileOpen, closeMobileSidebar }) {
+function Sidebar({ activeRoomId, onSelectRoom, unreadCounts = {}, darkMode, toggleDarkMode, isMobileOpen, closeMobileSidebar }) {
   const { user, logout } = useAuth();
   const [rooms, setRooms] = useState([
     { id: "general", name: "General Chat", description: "Default discussion room" },
+    { id: "ai-bot", name: "SOC AI Assistant", description: "Chat live with AI Bot", isBot: true },
     { id: "tech", name: "Tech & Code", description: "Developers hangout" },
     { id: "random", name: "Random & Fun", description: "Casual conversations" }
   ]);
@@ -100,7 +102,6 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
   const handleRoomCreated = (newRoom) => {
     setRooms((prev) => [newRoom, ...prev.filter(r => r.id !== newRoom.id)]);
     
-    // Broadcast room creation across all open browser tabs
     if (chatChannel) {
       chatChannel.postMessage({
         type: "NEW_ROOM",
@@ -194,25 +195,33 @@ function Sidebar({ activeRoomId, onSelectRoom, darkMode, toggleDarkMode, isMobil
           {filteredRooms.length === 0 ? (
             <div className="no-rooms">No rooms found</div>
           ) : (
-            filteredRooms.map((room) => (
-              <div
-                key={room.id}
-                className={`room-item ${activeRoomId === room.id ? "active" : ""}`}
-                onClick={() => handleRoomClick(room.id)}
-              >
-                <div className="room-icon-wrapper">
-                  {room.isDirectMessage ? (
-                    <MessageCircle size={18} className="room-hash" />
-                  ) : (
-                    <Hash size={18} className="room-hash" />
+            filteredRooms.map((room) => {
+              const unread = unreadCounts[room.id] || 0;
+              return (
+                <div
+                  key={room.id}
+                  className={`room-item ${activeRoomId === room.id ? "active" : ""}`}
+                  onClick={() => handleRoomClick(room.id)}
+                >
+                  <div className="room-icon-wrapper">
+                    {room.isBot ? (
+                      <Bot size={18} className="room-hash bot-icon" />
+                    ) : room.isDirectMessage ? (
+                      <MessageCircle size={18} className="room-hash" />
+                    ) : (
+                      <Hash size={18} className="room-hash" />
+                    )}
+                  </div>
+                  <div className="room-details">
+                    <span className="room-name">{room.name}</span>
+                    <span className="room-desc">{room.description || "Click to open chat"}</span>
+                  </div>
+                  {unread > 0 && (
+                    <div className="unread-badge">{unread}</div>
                   )}
                 </div>
-                <div className="room-details">
-                  <span className="room-name">{room.name}</span>
-                  <span className="room-desc">{room.description || "Click to open chat"}</span>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </aside>

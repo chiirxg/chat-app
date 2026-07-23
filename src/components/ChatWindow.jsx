@@ -6,14 +6,13 @@ import { useAuth } from "../context/AuthContext";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import "./ChatWindow.css";
-import { Hash, Menu, Loader2, X, Sparkles } from "lucide-react";
+import { Hash, Menu, Loader2, X, Sparkles, Bot } from "lucide-react";
 
-// Initialize BroadcastChannel for instant cross-tab sync
 const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
   ? new BroadcastChannel("soc_chat_app_channel")
   : null;
 
-function ChatWindow({ roomId, toggleMobileSidebar }) {
+function ChatWindow({ roomId, globalMessages = {}, setGlobalMessages, toggleMobileSidebar }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [roomInfo, setRoomInfo] = useState(null);
@@ -23,6 +22,13 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
   const messagesEndRef = useRef(null);
 
   const activeRoomId = roomId || "general";
+
+  // Sync messages from global store
+  useEffect(() => {
+    if (globalMessages[activeRoomId]) {
+      setMessages(globalMessages[activeRoomId]);
+    }
+  }, [activeRoomId, globalMessages]);
 
   // Fetch Room Info
   useEffect(() => {
@@ -35,14 +41,14 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
           setRoomInfo(snap.data());
         } else if (isSubscribed) {
           setRoomInfo({
-            name: activeRoomId === "general" ? "General Chat" : activeRoomId === "tech" ? "Tech & Code" : "Random & Fun",
-            description: "Public discussion room for all members"
+            name: activeRoomId === "general" ? "General Chat" : activeRoomId === "ai-bot" ? "SOC AI Assistant" : activeRoomId === "tech" ? "Tech & Code" : "Random & Fun",
+            description: activeRoomId === "ai-bot" ? "Chat live with AI Assistant Bot" : "Public discussion room for all members"
           });
         }
       } catch (err) {
         if (isSubscribed) {
           setRoomInfo({
-            name: activeRoomId,
+            name: activeRoomId === "ai-bot" ? "SOC AI Assistant" : activeRoomId,
             description: "Chat Room"
           });
         }
@@ -59,14 +65,12 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
     const handleBroadcast = (event) => {
       const { type, roomId: msgRoomId, message, senderId, senderName, isTyping } = event.data || {};
       
-      if (msgRoomId !== activeRoomId) return;
-
-      if (type === "NEW_MESSAGE" && message) {
+      if (msgRoomId === activeRoomId && type === "NEW_MESSAGE" && message) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === message.id)) return prev;
           return [...prev, message];
         });
-      } else if (type === "TYPING" && senderId !== user?.uid) {
+      } else if (msgRoomId === activeRoomId && type === "TYPING" && senderId !== user?.uid) {
         setTypingUsers((prev) => {
           if (isTyping) {
             return prev.includes(senderName) ? prev : [...prev, senderName];
@@ -97,6 +101,9 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
       if (msgs.length > 0) {
         isLiveFromFirestore = true;
         setMessages(msgs);
+        if (setGlobalMessages) {
+          setGlobalMessages((prev) => ({ ...prev, [activeRoomId]: msgs }));
+        }
       }
       setLoading(false);
     }, (error) => {
@@ -104,18 +111,17 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
       setLoading(false);
     });
 
-    // Timeout fallback if Firestore is taking time or in demo mode
     const timer = setTimeout(() => {
       if (!isLiveFromFirestore) {
         setLoading(false);
       }
-    }, 800);
+    }, 600);
 
     return () => {
       unsubscribe();
       clearTimeout(timer);
     };
-  }, [activeRoomId]);
+  }, [activeRoomId, setGlobalMessages]);
 
   // Real-time RTDB Typing Indicator Listener
   useEffect(() => {
@@ -142,6 +148,55 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
     scrollToBottom();
   }, [messages, typingUsers]);
 
+  // Generate AI Bot Auto-Response
+  const triggerAiBotResponse = (userText) => {
+    setTypingUsers(["SOC AI Assistant"]);
+
+    setTimeout(() => {
+      setTypingUsers([]);
+
+      let botReply = "Hello! I am your SOC AI Assistant. How can I help you today?";
+      const lower = userText.toLowerCase();
+
+      if (lower.includes("hi") || lower.includes("hello") || lower.includes("hey")) {
+        botReply = `Hey ${user?.displayName || "there"}! Great to chat with you in SOC Chat. How's your project going?`;
+      } else if (lower.includes("how are you")) {
+        botReply = "I'm doing fantastic, thanks for asking! Ready to help with any real-time chat testing.";
+      } else if (lower.includes("room") || lower.includes("direct")) {
+        botReply = "To start a 1-on-1 direct chat, click '+ New' in the sidebar and choose '1-on-1 Direct Chat'!";
+      } else if (lower.includes("help") || lower.includes("what can you do")) {
+        botReply = "I can answer questions, test real-time chat features, and demonstrate automated bot replies!";
+      }
+
+      const botMsg = {
+        id: "msg_bot_" + Date.now(),
+        text: botReply,
+        type: "text",
+        senderId: "soc_ai_bot",
+        senderName: "SOC AI Assistant",
+        senderPhoto: "https://api.dicebear.com/7.x/bottts/svg?seed=SOCBotAI",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setMessages((prev) => [...prev, botMsg]);
+
+      if (setGlobalMessages) {
+        setGlobalMessages((prev) => ({
+          ...prev,
+          [activeRoomId]: [...(prev[activeRoomId] || messages), botMsg]
+        }));
+      }
+
+      if (chatChannel) {
+        chatChannel.postMessage({
+          type: "NEW_MESSAGE",
+          roomId: activeRoomId,
+          message: botMsg
+        });
+      }
+    }, 1000);
+  };
+
   // Send Message Handler
   const handleSendMessage = async ({ text, type = "text", imageUrl = null }) => {
     if (!user) return;
@@ -157,10 +212,14 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    // Append locally immediately
-    setMessages((prev) => [...prev, newMsg]);
+    setMessages((prev) => {
+      const updated = [...prev, newMsg];
+      if (setGlobalMessages) {
+        setGlobalMessages((g) => ({ ...g, [activeRoomId]: updated }));
+      }
+      return updated;
+    });
 
-    // Broadcast across tabs in real-time
     if (chatChannel) {
       chatChannel.postMessage({
         type: "NEW_MESSAGE",
@@ -169,7 +228,11 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
       });
     }
 
-    // Try sending to Firestore with timeout safety
+    // Trigger AI Bot response if chatting in ai-bot room or tagging @bot
+    if (activeRoomId === "ai-bot" || text.toLowerCase().includes("@bot") || text.toLowerCase().includes("@ai")) {
+      triggerAiBotResponse(text);
+    }
+
     try {
       const addPromise = addDoc(collection(db, "rooms", activeRoomId, "messages"), {
         text,
@@ -197,7 +260,11 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
 
         <div className="chat-room-info">
           <div className="room-title">
-            <Hash className="hash-icon" size={20} />
+            {activeRoomId === "ai-bot" ? (
+              <Bot className="hash-icon bot-icon" size={20} />
+            ) : (
+              <Hash className="hash-icon" size={20} />
+            )}
             <h2>{roomInfo?.name || activeRoomId}</h2>
           </div>
           <span className="room-subtext">{roomInfo?.description || "Real-time conversation"}</span>
@@ -214,10 +281,14 @@ function ChatWindow({ roomId, toggleMobileSidebar }) {
         ) : messages.length === 0 ? (
           <div className="messages-empty">
             <div className="empty-icon-circle">
-              <Sparkles size={28} />
+              {activeRoomId === "ai-bot" ? <Bot size={28} /> : <Sparkles size={28} />}
             </div>
             <h3>No messages yet</h3>
-            <p>Be the first to say hello in <strong>#{roomInfo?.name || activeRoomId}</strong>!</p>
+            <p>
+              {activeRoomId === "ai-bot"
+                ? "Say hello to SOC AI Assistant!"
+                : <>Be the first to say hello in <strong>#{roomInfo?.name || activeRoomId}</strong>!</>}
+            </p>
           </div>
         ) : (
           messages.map((msg) => (

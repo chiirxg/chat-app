@@ -4,11 +4,17 @@ import Sidebar from "./components/Sidebar";
 import ChatWindow from "./components/ChatWindow";
 import "./App.css";
 
+const chatChannel = typeof window !== "undefined" && window.BroadcastChannel
+  ? new BroadcastChannel("soc_chat_app_channel")
+  : null;
+
 function App() {
   const [activeRoomId, setActiveRoomId] = useState("general");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const [globalMessages, setGlobalMessages] = useState({});
   const [darkMode, setDarkMode] = useState(() => {
-    return localStorage.getItem("soc_chat_theme") === "dark" || true; // Default dark
+    return localStorage.getItem("soc_chat_theme") === "dark" || true;
   });
 
   useEffect(() => {
@@ -21,6 +27,52 @@ function App() {
     }
   }, [darkMode]);
 
+  // Track Unread Badges & Global Message Store across tabs
+  useEffect(() => {
+    if (!chatChannel) return;
+
+    const handleBroadcast = (event) => {
+      const { type, roomId, message, room } = event.data || {};
+
+      if (type === "NEW_MESSAGE" && message && roomId) {
+        // Store message globally
+        setGlobalMessages((prev) => {
+          const roomMsgs = prev[roomId] || [];
+          if (roomMsgs.some((m) => m.id === message.id)) return prev;
+          return {
+            ...prev,
+            [roomId]: [...roomMsgs, message]
+          };
+        });
+
+        // Increment unread count if message is for a different room than active
+        if (roomId !== activeRoomId) {
+          setUnreadCounts((prev) => ({
+            ...prev,
+            [roomId]: (prev[roomId] || 0) + 1
+          }));
+        }
+      } else if (type === "NEW_ROOM" && room) {
+        // If it's a 1-on-1 direct room creation broadcast, automatically switch active room
+        if (room.isDirectMessage) {
+          setActiveRoomId(room.id);
+        }
+      }
+    };
+
+    chatChannel.addEventListener("message", handleBroadcast);
+    return () => chatChannel.removeEventListener("message", handleBroadcast);
+  }, [activeRoomId]);
+
+  const handleSelectRoom = (roomId) => {
+    setActiveRoomId(roomId);
+    // Clear unread count for selected room
+    setUnreadCounts((prev) => ({
+      ...prev,
+      [roomId]: 0
+    }));
+  };
+
   const toggleDarkMode = () => {
     setDarkMode((prev) => !prev);
   };
@@ -30,7 +82,8 @@ function App() {
       <div className={`app-layout ${darkMode ? "dark-theme" : "light-theme"}`}>
         <Sidebar
           activeRoomId={activeRoomId}
-          onSelectRoom={(id) => setActiveRoomId(id)}
+          onSelectRoom={handleSelectRoom}
+          unreadCounts={unreadCounts}
           darkMode={darkMode}
           toggleDarkMode={toggleDarkMode}
           isMobileOpen={isMobileSidebarOpen}
@@ -38,6 +91,8 @@ function App() {
         />
         <ChatWindow
           roomId={activeRoomId}
+          globalMessages={globalMessages}
+          setGlobalMessages={setGlobalMessages}
           toggleMobileSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         />
       </div>
